@@ -4,16 +4,21 @@ import bcrypt from "bcryptjs";
 import Feedback from "../models/feedback.js";
 
 export const register = async (req, res) => {
-    const { username, password, fullname, role } = req.body;
+    const { email, username, password, fullname, role } = req.body;
 
-    if (!username || !password || !fullname) {
+    if (!email || !username || !password || !fullname) {
         return res.status(400).json({ msg: "Semua field harus diisi" });
     }
 
     try {
-        const existingUser = await User.findOne({ username });
+        const existingUser = await User.findOne({ email });
         if (existingUser) {
-            return res.status(400).json({ msg: "Username sudah digunakan" });
+            return res.status(400).json({ msg: "Email sudah digunakan" });
+        }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({ msg: "Email tidak valid" });
         }
 
         const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{6,}$/;
@@ -22,6 +27,7 @@ export const register = async (req, res) => {
         }
 
         const user = await User.create({
+            email,
             username,
             password,
             fullname,
@@ -37,16 +43,16 @@ export const register = async (req, res) => {
 };
 
 export const login = async (req, res) => {
-    const { username, password } = req.body;
+    const { usernameOrEmail, password } = req.body;
 
-    if (!username || !password) {
+    if (!usernameOrEmail || !password) {
         return res.status(400).json({ msg: "Semua field harus diisi" });
     }
 
     try {
-        const user = await User.findOne({ username });
+        const user = await User.findOne({ $or: [{ username: usernameOrEmail }, { email: usernameOrEmail }] });
         if (!user) {
-            return res.status(400).json({ msg: "Username tidak ditemukan" });
+            return res.status(400).json({ msg: "Username atau email tidak ditemukan" });
         }
 
         const isMatchPassword = await bcrypt.compare(password, user.password);
@@ -66,6 +72,8 @@ export const login = async (req, res) => {
             token,
             user: {
                 id: user._id,
+                email: user.email,
+                username: user.username,
                 fullname: user.fullname,
                 role: user.role
             }
@@ -77,7 +85,7 @@ export const login = async (req, res) => {
 
 export const userLoggedin = async (req, res) => {
     try {
-        const user = await User.findById(req.user._id).select("_id username fullname role");
+        const user = await User.findById(req.user._id).select("_id email username fullname role");
 
         if (!user) {
             return res.status(404).json({
@@ -119,42 +127,42 @@ export const getUsersById = async (req, res) => {
 }
 
 export const editUser = async (req, res) => {
-     try {
+    try {
         // Validasi ID
         if (!req.params.id) {
-            return res.status(400).json({ 
-                status: "error", 
-                msg: "User ID is required" 
+            return res.status(400).json({
+                status: "error",
+                msg: "User ID is required"
             });
         }
 
         // Validasi input
         const { username, fullname } = req.body;
         if (!username || !fullname || username.trim() === '' || fullname.trim() === '') {
-            return res.status(400).json({ 
-                status: "error", 
-                msg: "Username and fullname are required" 
+            return res.status(400).json({
+                status: "error",
+                msg: "Username and fullname are required"
             });
         }
 
         // Cek apakah user ada
         const user = await User.findById(req.params.id);
         if (!user) {
-            return res.status(404).json({ 
-                status: "error", 
-                msg: "User not found" 
+            return res.status(404).json({
+                status: "error",
+                msg: "User not found"
             });
         }
 
         // Cek apakah username sudah digunakan user lain
-        const existingUser = await User.findOne({ 
-            username: username.trim(), 
-            _id: { $ne: req.params.id } 
+        const existingUser = await User.findOne({
+            username: username.trim(),
+            _id: { $ne: req.params.id }
         });
         if (existingUser) {
-            return res.status(409).json({ 
-                status: "error", 
-                msg: "Username already exists" 
+            return res.status(409).json({
+                status: "error",
+                msg: "Username already exists"
             });
         }
 
@@ -162,42 +170,42 @@ export const editUser = async (req, res) => {
         user.username = username.trim();
         user.fullname = fullname.trim();
         user.updatedAt = new Date(); // Jika ada field updatedAt
-        
+
         await user.save();
 
         // Return user tanpa password
         const userWithoutPassword = user.toObject();
         delete userWithoutPassword.password;
-        
-        res.status(200).json({ 
-            status: "success", 
+
+        res.status(200).json({
+            status: "success",
             msg: "User updated successfully",
-            data: userWithoutPassword 
+            data: userWithoutPassword
         });
-        
+
     } catch (error) {
         console.error('Error editing user:', error);
-        
+
         // Handle MongoDB validation errors
         if (error.name === 'ValidationError') {
-            return res.status(400).json({ 
-                status: "error", 
-                msg: "Validation error", 
-                details: error.message 
+            return res.status(400).json({
+                status: "error",
+                msg: "Validation error",
+                details: error.message
             });
         }
-        
+
         // Handle MongoDB CastError (invalid ObjectId)
         if (error.name === 'CastError') {
-            return res.status(400).json({ 
-                status: "error", 
-                msg: "Invalid user ID format" 
+            return res.status(400).json({
+                status: "error",
+                msg: "Invalid user ID format"
             });
         }
-        
-        res.status(500).json({ 
-            status: "error", 
-            msg: "Internal server error" 
+
+        res.status(500).json({
+            status: "error",
+            msg: "Internal server error"
         });
     }
 }
